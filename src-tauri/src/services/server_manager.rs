@@ -255,6 +255,64 @@ impl ServerManager {
             let _ = std::fs::write(&eula, "# Auto-accepted by Sea Lantern\neula=true\n");
         }
 
+        //预处理脚本
+        // windows系统中：检查服务器目录下是否有 preload.bat 文件
+        #[cfg(target_os = "windows")]
+        {
+            let preload_bat_path = std::path::Path::new(&server.path).join("preload.bat");
+            if preload_bat_path.exists() {
+                println!("发现预加载脚本: {:?}", preload_bat_path);
+
+                // Windows 下执行 bat 文件
+                let bat_result = std::process::Command::new("cmd")
+                    .args(&["/c", preload_bat_path.to_str().unwrap_or("preload.bat")])
+                    .current_dir(&server.path)
+                    .output()
+                    .map_err(|e| format!("执行 preload.bat 失败: {}", e))?;
+
+                if bat_result.status.success() {
+                    println!("preload.bat 执行成功");
+                    if !bat_result.stdout.is_empty() {
+                        let output = String::from_utf8_lossy(&bat_result.stdout);
+                        println!("preload.bat 输出: {}", output);
+                        self.append_log(id, &format!("[preload] {}", output));
+                    }
+                } else {
+                    let error = String::from_utf8_lossy(&bat_result.stderr);
+                    let error_msg = format!("preload.bat 执行失败: {}", error);
+                    println!("{}", error_msg);
+                    self.append_log(id, &error_msg);
+                }
+            } else {
+                println!("未找到预加载脚本: {:?}", preload_bat_path);
+            }
+        }
+
+        // 非Windows系统中：检查服务器目录下是否有 preload.sh 文件
+        #[cfg(not(target_os = "windows"))]
+        {
+            let preload_bat_path = std::path::Path::new(&server.path).join("preload.sh");
+            if preload_bat_path.exists() {
+
+                // 非 Windows 系统下，作为 shell 脚本执行
+                println!("非 Windows 系统，作为 shell 脚本执行");
+                let bat_result = std::process::Command::new("sh")
+                    .arg(preload_bat_path)
+                    .current_dir(&server.path)
+                    .output()
+                    .map_err(|e| format!("执行 preload script 失败: {}", e))?;
+                if bat_result.status.success() {
+                    println!("preload script 执行成功");
+                } else {
+                    let error = String::from_utf8_lossy(&bat_result.stderr);
+                    println!("preload script 执行失败: {}", error);
+                    self.append_log(id, &format!("[preload] 执行失败: {}", error));
+                }
+            } else {
+                println!("未找到预加载脚本: {:?}", preload_bat_path);
+            }
+        }
+
         // 使用最简单的方式直接启动Java
         let mut cmd = Command::new(&server.java_path);
         cmd.arg(format!("-Xmx{}M", server.max_memory));
