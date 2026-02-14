@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 
 interface Option {
   label: string;
@@ -43,6 +43,8 @@ const dropdownRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const highlightedIndex = ref(-1);
 
+const dropdownStyle = ref<Record<string, string>>({});
+
 const selectedOption = computed(() => {
   return props.options.find(opt => opt.value === props.modelValue);
 });
@@ -55,15 +57,30 @@ const filteredOptions = computed(() => {
   );
 });
 
+function updateDropdownPosition() {
+  if (!containerRef.value) return;
+  const rect = containerRef.value.getBoundingClientRect();
+  dropdownStyle.value = {
+    position: 'fixed',
+    top: `${rect.bottom + 4}px`,
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+    zIndex: '99999',
+  };
+}
+
 function toggleDropdown() {
   if (props.disabled) return;
   isOpen.value = !isOpen.value;
   if (isOpen.value) {
     searchQuery.value = "";
     highlightedIndex.value = -1;
-    if (props.searchable) {
-      setTimeout(() => inputRef.value?.focus(), 0);
-    }
+    nextTick(() => {
+      updateDropdownPosition();
+      if (props.searchable) {
+        inputRef.value?.focus();
+      }
+    });
   }
 }
 
@@ -116,7 +133,9 @@ function scrollToHighlighted() {
 }
 
 function handleClickOutside(e: MouseEvent) {
-  if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
+  const target = e.target as Node;
+  if (containerRef.value && !containerRef.value.contains(target) && 
+      dropdownRef.value && !dropdownRef.value.contains(target)) {
     isOpen.value = false;
   }
 }
@@ -161,47 +180,49 @@ onUnmounted(() => {
       </svg>
     </div>
 
-    <Transition name="dropdown">
-      <div v-if="isOpen" class="sl-select-dropdown" ref="dropdownRef">
-        <div v-if="searchable" class="sl-select-search">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
-          <input
-            ref="inputRef"
-            v-model="searchQuery"
-            type="text"
-            placeholder="搜索..."
-            class="sl-select-input"
-            @keydown="handleKeydown"
-          />
-        </div>
-        
-        <div class="sl-select-options" :style="{ maxHeight }">
-          <div v-if="filteredOptions.length === 0" class="sl-select-empty">
-            未找到匹配项
-          </div>
-          <div
-            v-for="(option, index) in filteredOptions"
-            :key="option.value"
-            class="sl-select-option"
-            :class="{
-              selected: option.value === modelValue,
-              highlighted: index === highlightedIndex
-            }"
-            :style="getFontStyle(option.value)"
-            @click="selectOption(option)"
-            @mouseenter="highlightedIndex = index"
-          >
-            <span class="option-label">{{ option.label }}</span>
-            <svg v-if="option.value === modelValue" class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6L9 17l-5-5" />
+    <Teleport to="body">
+      <Transition name="dropdown">
+        <div v-if="isOpen" class="sl-select-dropdown" ref="dropdownRef" :style="dropdownStyle">
+          <div v-if="searchable" class="sl-select-search">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
             </svg>
+            <input
+              ref="inputRef"
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索..."
+              class="sl-select-input"
+              @keydown="handleKeydown"
+            />
+          </div>
+          
+          <div class="sl-select-options" :style="{ maxHeight }">
+            <div v-if="filteredOptions.length === 0" class="sl-select-empty">
+              未找到匹配项
+            </div>
+            <div
+              v-for="(option, index) in filteredOptions"
+              :key="option.value"
+              class="sl-select-option"
+              :class="{
+                selected: option.value === modelValue,
+                highlighted: index === highlightedIndex
+              }"
+              :style="getFontStyle(option.value)"
+              @click="selectOption(option)"
+              @mouseenter="highlightedIndex = index"
+            >
+              <span class="option-label">{{ option.label }}</span>
+              <svg v-if="option.value === modelValue" class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            </div>
           </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -294,21 +315,32 @@ onUnmounted(() => {
 .sl-select-arrow.open {
   transform: rotate(180deg);
 }
+</style>
 
+<style>
+/* 下拉框样式 - 非 scoped，因为使用 Teleport 渲染到 body */
 .sl-select-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--sl-surface);
+  background: #1e2130;
   border: 1px solid var(--sl-border);
   border-radius: var(--sl-radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+  backdrop-filter: blur(20px);
 }
 
-.sl-select-search {
+:root[data-theme="light"] .sl-select-dropdown {
+  background: #ffffff;
+}
+
+:root[data-acrylic="true"][data-theme="dark"] .sl-select-dropdown {
+  background: rgba(30, 33, 48, 0.95);
+}
+
+:root[data-acrylic="true"][data-theme="light"] .sl-select-dropdown {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.sl-select-dropdown .sl-select-search {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -316,12 +348,12 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--sl-border);
 }
 
-.sl-select-search .search-icon {
+.sl-select-dropdown .search-icon {
   color: var(--sl-text-tertiary);
   flex-shrink: 0;
 }
 
-.sl-select-input {
+.sl-select-dropdown .sl-select-input {
   flex: 1;
   border: none;
   background: transparent;
@@ -330,40 +362,40 @@ onUnmounted(() => {
   outline: none;
 }
 
-.sl-select-input::placeholder {
+.sl-select-dropdown .sl-select-input::placeholder {
   color: var(--sl-text-tertiary);
 }
 
-.sl-select-options {
+.sl-select-dropdown .sl-select-options {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.sl-select-options::-webkit-scrollbar {
+.sl-select-dropdown .sl-select-options::-webkit-scrollbar {
   width: 6px;
 }
 
-.sl-select-options::-webkit-scrollbar-track {
+.sl-select-dropdown .sl-select-options::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.sl-select-options::-webkit-scrollbar-thumb {
+.sl-select-dropdown .sl-select-options::-webkit-scrollbar-thumb {
   background: var(--sl-border);
   border-radius: 3px;
 }
 
-.sl-select-options::-webkit-scrollbar-thumb:hover {
+.sl-select-dropdown .sl-select-options::-webkit-scrollbar-thumb:hover {
   background: var(--sl-text-tertiary);
 }
 
-.sl-select-empty {
+.sl-select-dropdown .sl-select-empty {
   padding: 16px;
   text-align: center;
   color: var(--sl-text-tertiary);
   font-size: 0.875rem;
 }
 
-.sl-select-option {
+.sl-select-dropdown .sl-select-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -372,24 +404,24 @@ onUnmounted(() => {
   transition: background var(--sl-transition-fast);
 }
 
-.sl-select-option:hover,
-.sl-select-option.highlighted {
+.sl-select-dropdown .sl-select-option:hover,
+.sl-select-dropdown .sl-select-option.highlighted {
   background: var(--sl-surface-hover);
 }
 
-.sl-select-option.selected {
+.sl-select-dropdown .sl-select-option.selected {
   color: var(--sl-primary);
   background: var(--sl-primary-bg);
 }
 
-.sl-select-option .option-label {
+.sl-select-dropdown .sl-select-option .option-label {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sl-select-option .check-icon {
+.sl-select-dropdown .sl-select-option .check-icon {
   color: var(--sl-primary);
   flex-shrink: 0;
   margin-left: 8px;
